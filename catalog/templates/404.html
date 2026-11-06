@@ -1,0 +1,5 @@
+{% extends "catalog/base.html" %}
+{% block title %}Page not found | The Bravemind's Hub{% endblock %}
+{% block content %}
+<div class="card card-body text-center py-5"><h1 class="h3">We couldn't find that page</h1><p class="text-muted">The page may have moved, or the book may no longer be available.</p><a class="btn btn-dark align-self-center" href="{% url 'catalog:book_list' %}">Browse the catalogue</a></div>
+{% endblock %}

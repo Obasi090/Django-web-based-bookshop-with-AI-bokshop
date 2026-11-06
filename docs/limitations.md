@@ -1,0 +1,12 @@
+# Known limitations
+
+- **Semantic retrieval is approximate.** The chatbot ranks books by meaning and normally sees only five retrieved books. It cannot reliably answer whole-shop questions such as the cheapest, most expensive, or highest-rated book. It must not generalise from its small retrieved subset.
+- **Budget filtering is not implemented.** Asking for books under a specific price is a known weak spot: semantic similarity does not guarantee that all returned books meet a numeric budget. Check each listed price in the catalogue.
+- **Demo prices and stock are placeholders.** Goodreads supplies book metadata, not this shop's prices or inventory. The import command generates initial demo values using a rule; the shop owner must replace them with real values before any real retail use.
+- **Third-party import dependency.** Direct import relies on ReefAPI and its credits. The saved JSON snapshot allows the catalogue to be loaded without a live ReefAPI request.
+- **Gemini quota and network dependency.** Embedding and live chatbot responses require Gemini access and can fail because of network errors or free-tier quotas. Embedding pacing, retry limits, and the per-session chat limit reduce but do not remove this risk.
+- **Answer quality is not guaranteed.** The `chat_eval` command checks a scripted set of objective failure cases, but its results need human review. Automated tests use fake model responses and do not prove real-model answer quality.
+- **Pay on delivery is simulated.** There is no payment gateway, card collection, real delivery integration, or email receipt workflow.
+- **Remote covers and Bootstrap.** Goodreads cover images and the current Bootstrap CDN references require internet access. A fallback is shown for missing cover images. Local Bootstrap assets still need to be downloaded as documented in the README.
+- **SQLite row locking.** SQLite does not provide the same `SELECT FOR UPDATE` row-lock behaviour as PostgreSQL. Checkout still uses a database transaction, but concurrent purchase behaviour should be re-evaluated if the database engine changes.
+- **Development configuration.** This project is intended for a local demonstration. Do not deploy with debug mode enabled or without reviewing Django's production security checklist.

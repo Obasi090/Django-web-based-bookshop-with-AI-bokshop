@@ -1,0 +1,210 @@
+<div id="chat-root"
+     data-chat-url="{% url 'catalog:chat' %}"
+     data-reset-url="{% url 'catalog:chat_reset' %}"
+     data-cart-add-url="{% url 'orders:cart_add' 0 %}"
+     data-csrf="{{ csrf_token }}">
+
+  <button id="chat-toggle" type="button"
+          class="btn btn-dark rounded-pill shadow position-fixed bottom-0 end-0 m-3"
+          style="z-index: 1040;" aria-label="Open Juo'm, the AI book assistant">Juo'm <span class="badge text-bg-light">AI</span></button>
+
+  <div id="chat-panel" class="card bh-chat-panel shadow position-fixed bottom-0 end-0 m-3 d-none"
+       style="width: min(380px, calc(100vw - 2rem)); z-index: 1050;" role="dialog" aria-modal="false" aria-labelledby="juom-title">
+    <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+      <div><strong id="juom-title">Juo'm</strong><div class="small">AI book assistant</div></div>
+      <div class="d-flex align-items-center gap-2">
+        <button id="chat-reset" type="button" class="btn btn-sm btn-outline-light">New chat</button>
+        <button id="chat-close" type="button" class="btn-close btn-close-white" aria-label="Close"></button>
+      </div>
+    </div>
+    <div id="chat-log" class="card-body overflow-auto" style="height: 340px;" aria-live="polite"></div>
+    <div class="card-footer">
+      <form id="chat-form" class="d-flex gap-2" autocomplete="off">
+        <input id="chat-input" class="form-control" maxlength="500" required
+               aria-label="Ask Juo'm" placeholder="Ask Juo'm, for example: something like Fourth Wing">
+        <button id="chat-send" class="btn btn-dark" type="submit">Send</button>
+      </form>
+      <p class="small text-muted mt-2 mb-0">Juo'm is an AI and can make mistakes. Check price and stock on the book page.</p>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var root = document.getElementById("chat-root");
+  if (!root) { return; }
+
+  var toggle = document.getElementById("chat-toggle");
+  var panel = document.getElementById("chat-panel");
+  var closeBtn = document.getElementById("chat-close");
+  var resetBtn = document.getElementById("chat-reset");
+  var log = document.getElementById("chat-log");
+  var form = document.getElementById("chat-form");
+  var input = document.getElementById("chat-input");
+  var sendBtn = document.getElementById("chat-send");
+
+  var STORE_KEY = "librarian_chat_v1";
+  var OPEN_KEY = "librarian_chat_open";
+  var GREETING = "Hi! I'm Juo'm, this shop's AI book assistant. Tell me what you like to read, ask about a book, or ask me to add something to your cart.";
+  var transcript = [];
+
+  function loadTranscript() {
+    try { transcript = JSON.parse(sessionStorage.getItem(STORE_KEY)) || []; }
+    catch (e) { transcript = []; }
+  }
+  function saveTranscript() {
+    try { sessionStorage.setItem(STORE_KEY, JSON.stringify(transcript.slice(-40))); }
+    catch (e) { /* storage unavailable: chat still works */ }
+  }
+
+  function scrollDown() { log.scrollTop = log.scrollHeight; }
+
+  function addBubble(text, who) {
+    var wrap = document.createElement("div");
+    wrap.className = "mb-2 d-flex " + (who === "user" ? "justify-content-end" : "justify-content-start");
+    var bubble = document.createElement("div");
+    var style = who === "user" ? "bg-dark text-white"
+              : who === "error" ? "bg-danger-subtle text-danger-emphasis"
+              : "bg-light border";
+    bubble.className = "px-3 py-2 rounded-3 " + style;
+    bubble.style.whiteSpace = "pre-wrap";
+    bubble.style.maxWidth = "85%";
+    bubble.textContent = text;
+    wrap.appendChild(bubble);
+    log.appendChild(wrap);
+    scrollDown();
+    return bubble;
+  }
+
+  function addBooks(books) {
+    if (!books || !books.length) { return; }
+    var row = document.createElement("div");
+    row.className = "mb-2 d-flex flex-wrap gap-1";
+    books.forEach(function (book) {
+      var wrap = document.createElement("div");
+      wrap.className = "d-flex flex-wrap gap-1 align-items-center";
+      var link = document.createElement("a");
+      link.href = book.url;
+      link.className = "btn btn-sm btn-outline-dark";
+      link.textContent = book.title + " \u00B7 \u20A6" + book.price;
+      wrap.appendChild(link);
+      var add = document.createElement("button");
+      add.type = "button";
+      add.className = "btn btn-sm btn-dark";
+      add.textContent = "Add to cart";
+      add.disabled = !book.id;
+      add.addEventListener("click", async function () {
+        add.disabled = true;
+        try {
+          var addUrl = root.dataset.cartAddUrl.replace(/0\/$/, book.id + "/");
+          var response = await fetch(addUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json", "X-CSRFToken": root.dataset.csrf },
+            body: "quantity=1"
+          });
+          var result = await response.json();
+          if (!response.ok) { throw new Error(result.message || "Could not add this book."); }
+          var badge = document.getElementById("cart-count");
+          if (badge) { badge.textContent = result.cart_count; }
+          add.textContent = "Added";
+        } catch (error) {
+          add.disabled = false;
+          add.textContent = error.message;
+        }
+      });
+      wrap.appendChild(add);
+      row.appendChild(wrap);
+    });
+    log.appendChild(row);
+    scrollDown();
+  }
+
+  function renderEntry(entry) {
+    addBubble(entry.text, entry.who);
+    addBooks(entry.books);
+  }
+
+  function showGreeting() {
+    var entry = { who: "bot", text: GREETING, books: [] };
+    transcript.push(entry);
+    renderEntry(entry);
+    saveTranscript();
+  }
+
+  function setOpen(open) {
+    panel.classList.toggle("d-none", !open);
+    toggle.classList.toggle("d-none", open);
+    try { sessionStorage.setItem(OPEN_KEY, open ? "1" : "0"); } catch (e) {}
+    if (open) { input.focus(); scrollDown(); }
+  }
+
+  async function post(url, body) {
+    var response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-CSRFToken": root.dataset.csrf },
+      body: JSON.stringify(body || {})
+    });
+    var data = {};
+    try { data = await response.json(); } catch (e) { /* non-JSON error page */ }
+    if (!response.ok) {
+      throw new Error(data.error || "Something went wrong. Please try again.");
+    }
+    return data;
+  }
+
+  form.addEventListener("submit", async function (event) {
+    event.preventDefault();
+    var text = input.value.trim();
+    if (!text) { return; }
+
+    var userEntry = { who: "user", text: text, books: [] };
+    transcript.push(userEntry);
+    renderEntry(userEntry);
+    input.value = "";
+    input.disabled = true;
+    sendBtn.disabled = true;
+
+    var pending = addBubble("Thinking\u2026", "bot");
+    try {
+      var data = await post(root.dataset.chatUrl, { message: text });
+      pending.textContent = data.reply;
+      addBooks(data.books);
+      transcript.push({ who: "bot", text: data.reply, books: data.books || [] });
+    } catch (error) {
+      pending.parentNode.remove();
+      addBubble(error.message, "error");
+      transcript.pop();   // the question was not answered; keep the transcript consistent
+    } finally {
+      saveTranscript();
+      input.disabled = false;
+      sendBtn.disabled = false;
+      input.focus();
+    }
+  });
+
+  resetBtn.addEventListener("click", async function () {
+    try { await post(root.dataset.resetUrl, {}); } catch (e) { /* ignore */ }
+    transcript = [];
+    log.textContent = "";
+    showGreeting();
+  });
+
+  toggle.addEventListener("click", function () { setOpen(true); });
+  closeBtn.addEventListener("click", function () { setOpen(false); toggle.focus(); });
+  document.addEventListener("keydown", function (event) { if (event.key === "Escape" && !panel.classList.contains("d-none")) { setOpen(false); toggle.focus(); } });
+
+  window.JuoM = { open: function (prefill, autoSend) {
+    setOpen(true);
+    if (prefill) { input.value = prefill; }
+    if (autoSend) { form.requestSubmit(); }
+  } };
+
+  loadTranscript();
+  if (transcript.length === 0) { showGreeting(); }
+  else { transcript.forEach(renderEntry); }
+
+  var wasOpen = false;
+  try { wasOpen = sessionStorage.getItem(OPEN_KEY) === "1"; } catch (e) {}
+  setOpen(wasOpen);
+})();
+</script>
